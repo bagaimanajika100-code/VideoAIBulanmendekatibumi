@@ -1,0 +1,41 @@
+name: Render video
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: 20}
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: pip install edge-tts
+      - run: python gen_audio.py
+      - name: Narasi (suara laki-laki, nada tinggi)
+        continue-on-error: true
+        run: |
+          for i in 1 2 3 4 5 6; do
+            for try in 1 2 3; do
+              edge-tts --voice id-ID-ArdiNeural --pitch=+25Hz --rate=+10% --file narasi/$i.txt --write-media n$i.mp3 && break
+              sleep 3
+            done
+          done
+      - name: Cadangan narasi kosong jika gagal
+        if: always()
+        run: |
+          for i in 1 2 3 4 5 6; do
+            [ -s n$i.mp3 ] || ffmpeg -y -f lavfi -i anullsrc=r=24000:cl=mono -t 1 -q:a 9 n$i.mp3
+          done
+      - run: npm i playwright && npx playwright install --with-deps chromium
+      - run: node render.js
+      - name: Gabungkan video + audio
+        run: |
+          ffmpeg -y -framerate 30 -i frames/%04d.jpg -i sfx.wav \
+            -i n1.mp3 -i n2.mp3 -i n3.mp3 -i n4.mp3 -i n5.mp3 -i n6.mp3 \
+            -filter_complex "[1:a]volume=0.5[s];[2:a]adelay=300|300[a1];[3:a]adelay=4300|4300[a2];[4:a]adelay=9300|9300[a3];[5:a]adelay=15300|15300[a4];[6:a]adelay=21300|21300[a5];[7:a]adelay=26300|26300[a6];[s][a1][a2][a3][a4][a5][a6]amix=inputs=7:normalize=0:duration=longest,volume=1.3[a]" \
+            -map 0:v -map "[a]" -t 30 -r 30 -c:v libx264 -pix_fmt yuv420p -crf 18 -c:a aac -b:a 192k bulan-mendekati-bumi.mp4
+      - uses: actions/upload-artifact@v4
+        with: {name: video, path: bulan-mendekati-bumi.mp4}
